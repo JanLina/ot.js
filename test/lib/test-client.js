@@ -38,6 +38,7 @@ exports.testClient = function (test) {
     appliedOperation = operation;
   };
 
+  // 将 client 的 operation 发送到 server
   function applyClient (operation) {
     doc = operation.apply(doc);
     client.applyClient(operation);
@@ -55,21 +56,29 @@ exports.testClient = function (test) {
   test.ok(client.state.outstanding.equals(new TextOperation().retain(11).insert(" ")));
   test.ok(getSentOperation().equals(new TextOperation().retain(11).insert(" ")));
 
+  // client 方的合并
+  // 存在 sentOperation，client 又收到新的 server operation
+  // 将新的 server operation 应用到 client，并合并到 sentOperation
   client.applyServer(new TextOperation().retain(5).insert(" ").retain(6));
   test.strictEqual(doc, "lorem  Dolor ");
   test.strictEqual(client.revision, 3);
   test.ok(client.state instanceof Client.AwaitingConfirm);
   test.ok(client.state.outstanding.equals(new TextOperation().retain(12).insert(" ")));
 
+  // client 方的缓冲
+  // 存在 sentOperation，client 又产生了新的 operation(s)
+  // 统一放到 buffer 缓冲起来，并且 state 变更为 AwaitingWithBuffer
   applyClient(new TextOperation().retain(13).insert("S"));
   test.ok(client.state instanceof Client.AwaitingWithBuffer);
   applyClient(new TextOperation().retain(14).insert("i"));
   applyClient(new TextOperation().retain(15).insert("t"));
   test.ok(!sentRevision && !sentOperation);
   test.strictEqual(doc, "lorem  Dolor Sit");
-  test.ok(client.state.outstanding.equals(new TextOperation().retain(12).insert(" ")));
-  test.ok(client.state.buffer.equals(new TextOperation().retain(13).insert("Sit")));
+  test.ok(client.state.outstanding.equals(new TextOperation().retain(12).insert(" ")));  // 待 server 确认
+  test.ok(client.state.buffer.equals(new TextOperation().retain(13).insert("Sit")));     // 缓冲区
 
+  // client 又收到新的 server operation
+  // 更新 sentOperation 和 buffer
   client.applyServer(new TextOperation().retain(6).insert("Ipsum").retain(6));
   test.strictEqual(client.revision, 4);
   test.strictEqual(doc, "lorem Ipsum Dolor Sit");
@@ -77,6 +86,8 @@ exports.testClient = function (test) {
   test.ok(client.state.outstanding.equals(new TextOperation().retain(17).insert(" ")));
   test.ok(client.state.buffer.equals(new TextOperation().retain(18).insert("Sit")));
 
+  // 收到 sentOperation 的 Ack 后
+  // 发送 buffer 里的 operation
   client.serverAck();
   test.strictEqual(getSentRevision(), 5);
   test.ok(getSentOperation().equals(new TextOperation().retain(18).insert("Sit")));
@@ -84,6 +95,7 @@ exports.testClient = function (test) {
   test.ok(client.state instanceof Client.AwaitingConfirm);
   test.ok(client.state.outstanding.equals(new TextOperation().retain(18).insert("Sit")));
 
+  // 收到 buffer 的 Ack
   client.serverAck();
   test.strictEqual(client.revision, 6);
   test.ok(typeof sentRevision !== 'number');
@@ -98,6 +110,8 @@ exports.testClient = function (test) {
   test.ok(client.state instanceof Client.AwaitingWithBuffer);
   test.ok(!!client.state.resend);
 
+  // 跟 server 的连接断开了，resend 重新发送未确认的 operation
+  // 只有 AwaitingConfirm 和 AwaitingWithBuffer 状态有 resend 方法
   client.state.resend(client);
   test.ok(sentOperation.equals(new TextOperation().retain(21).insert('a')));
   client.serverAck();
