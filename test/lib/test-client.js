@@ -44,11 +44,16 @@ exports.testClient = function (test) {
     client.applyClient(operation);
   }
 
+  // Synchronized 状态下收到新的 server op
+  // 直接应用 op 并 client.revision++
+  console.log('\nSynchronized & applyServer');
   client.applyServer(new TextOperation().retain(6)['delete'](1).insert("D").retain(4));
   test.strictEqual(doc, "lorem Dolor");
   test.ok(client.state instanceof Client.Synchronized);
   test.strictEqual(client.revision, 2);
 
+  // Synchronized 状态下产生了新的 client op
+  // 将其发送给 server，状态变为 AwaitingConfirm
   applyClient(new TextOperation().retain(11).insert(" "));
   test.strictEqual(doc, "lorem Dolor ");
   test.ok(client.state instanceof Client.AwaitingConfirm);
@@ -56,9 +61,10 @@ exports.testClient = function (test) {
   test.ok(client.state.outstanding.equals(new TextOperation().retain(11).insert(" ")));
   test.ok(getSentOperation().equals(new TextOperation().retain(11).insert(" ")));
 
-  // client 方的合并
-  // 存在 sentOperation，client 又收到新的 server operation
-  // 将新的 server operation 应用到 client，并合并到 sentOperation
+  // client 存在 sentOperation，又收到新的 server operation
+  // 将 server op 和 sentOperation 进行 transform
+  // server op' 应用到文档，sentOperation' 替换 sentOperation
+  console.log('\nAwaitingConfirm & applyServer');
   client.applyServer(new TextOperation().retain(5).insert(" ").retain(6));
   test.strictEqual(doc, "lorem  Dolor ");
   test.strictEqual(client.revision, 3);
@@ -79,6 +85,7 @@ exports.testClient = function (test) {
 
   // client 又收到新的 server operation
   // 更新 sentOperation 和 buffer
+  console.log('\nAwaitingWithBuffer & applyServer');
   client.applyServer(new TextOperation().retain(6).insert("Ipsum").retain(6));
   test.strictEqual(client.revision, 4);
   test.strictEqual(doc, "lorem Ipsum Dolor Sit");
